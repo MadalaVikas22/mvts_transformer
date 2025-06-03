@@ -135,3 +135,4 @@ python src/main.py --output_dir experiments --comment "finetune for regression" 
 ```bash
 python src/main.py --output_dir experiments --comment "finetune for classification" --name SpokenArabicDigits_finetuned --records_file Classification_records.xls --data_dir /path/to/Datasets/Classification/SpokenArabicDigits/ --data_class tsra --pattern TRAIN --val_pattern TEST --epochs 100 --lr 0.001 --optimizer RAdam --batch_size 128 --pos_encoding learnable --d_model 64 --load_model path/to/SpokenArabicDigits_pretrained/checkpoints/model_best.pth --task classification --change_output --key_metric accuracy
 ```
+# skills-copilot-codespaces-vscode1
