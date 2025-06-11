@@ -1,3 +1,31 @@
+# # Core libraries
+# pandas>=1.5.3,<2.2.0
+# numpy>=1.23.0
+# scikit-learn>=1.3.0
+# matplotlib>=3.7.0
+
+# # ML frameworks
+# xgboost>=1.7.0
+# lightgbm>=4.0.0
+# torch>=2.0.0
+# tensorboard>=2.13.0
+
+# # Utility libraries
+# tqdm>=4.65.0
+# tabulate>=0.9.0
+# rich>=13.0.0
+# ipdb>=0.13.13
+
+# # Excel support
+# xlrd>=2.0.1
+# xlwt>=1.3.0
+# xlutils>=2.0.0
+
+# # Optional baseline model
+# #sklearn-dummy>=0.0.1
+
+# # Time series support (modern)
+# sktime>=0.24.0
 ipdb
 tqdm
 xlrd
@@ -10,4 +38,4 @@ tensorboard
 matplotlib
 numpy
 scikit_learn
-sktime==0.4.1
+sktime==0.24.1
