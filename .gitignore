@@ -1,32 +1,28 @@
-# Env and package
-.env
-.vscode
-*.whl
-build
-*.egg-info
-
-# Dataset
-*.npz
-
-# Models
+# Data and outputs
+experiments/
+outputs/
+checkpoints/
+data/
 *.pth
-*.pickle
+*.pkl
+*.log
+*.csv
+*.xls
 
-# Compiled python
+# Python
+__pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
+venv/
+env/
+.venv/
 
-# Jupyter
-*.ipynb
-.ipynb_checkpoints
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
 
-# Doc
-_build
-
-# Figures
-*.png
-*.jpg
-
-# Logs
-logs
-
-.idea
+# Personal paths
+/Users/*/Documents/Counterfactuals_for_TimeSeries/cogload/

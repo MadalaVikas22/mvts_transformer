@@ -9,7 +9,8 @@ from itertools import repeat, chain
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from sktime.utils import load_data
+from sktime.datasets import load_from_tsfile_to_dataframe
+from sklearn.preprocessing import LabelEncoder
 
 from datasets import utils
 
@@ -286,13 +287,13 @@ class TSRegressionArchive(BaseData):
             df, labels = utils.load_from_tsfile_to_dataframe(filepath, return_separate_X_and_y=True, replace_missing_vals_with='NaN')
             labels_df = pd.DataFrame(labels, dtype=np.float32)
         elif self.config['task'] == 'classification':
-            df, labels = load_data.load_from_tsfile_to_dataframe(filepath, return_separate_X_and_y=True, replace_missing_vals_with='NaN')
+            df, labels = load_from_tsfile_to_dataframe(filepath, return_separate_X_and_y=True, replace_missing_vals_with='NaN')
             labels = pd.Series(labels, dtype="category")
             self.class_names = labels.cat.categories
             labels_df = pd.DataFrame(labels.cat.codes, dtype=np.int8)  # int8-32 gives an error when using nn.CrossEntropyLoss
         else:  # e.g. imputation
             try:
-                data = load_data.load_from_tsfile_to_dataframe(filepath, return_separate_X_and_y=True,
+                data = load_from_tsfile_to_dataframe(filepath, return_separate_X_and_y=True,
                                                                      replace_missing_vals_with='NaN')
                 if isinstance(data, tuple):
                     df, labels = data
@@ -442,7 +443,144 @@ class PMUData(BaseData):
         df = pd.read_csv(filepath)
         return df
 
+import os
+import pandas as pd
+import numpy as np
+from tqdm import tqdm
+import rich 
+from rich.console import Console
+from sklearn.preprocessing import LabelEncoder
+
+console = Console()
+
+class CogloadData(BaseData):
+    """
+    Dataset class for Cogload OCO dataset.
+    """
+
+    def __init__(self, oco_dir, pattern=None, n_proc=1, limit_size=None, config=None):
+        self.set_num_processes(n_proc=n_proc)
+        self.oco_dir = oco_dir
+        
+        self.all_df = self.load_all()
+        self.all_df = self.filter_valid_windows(self.all_df)
+        
+        # Create a mapping from (subject, window_index) to sequential integer IDs
+        unique_pairs = self.all_df[["subject", "window_index"]].drop_duplicates().reset_index(drop=True)
+        id_mapping = {(row.subject, row.window_index): idx for idx, row in unique_pairs.iterrows()}
+        
+        # Add sequential ID column to match other dataset classes
+        self.all_df['ID'] = self.all_df.apply(lambda row: id_mapping[(row.subject, row.window_index)], axis=1)
+        
+        # Set ID as index (like other dataset classes)
+        self.all_df = self.all_df.set_index('ID')
+        self.all_IDs = self.all_df.index.unique()
+        
+        # compute max sequence length
+        self.max_seq_len = self.all_df.groupby(self.all_df.index).size().max()
+
+        # Encode labels
+        self.label_encoder = LabelEncoder()
+        self.all_df['ml_expressions_encoded'] = self.label_encoder.fit_transform(self.all_df['ml_expressions'])
+        print("Class mapping:", dict(zip(self.label_encoder.classes_, self.label_encoder.transform(self.label_encoder.classes_))))
+        self.all_df.drop(columns=['ml_expressions'], inplace=True)
+
+        self.feature_names = [col for col in self.all_df.columns if col.startswith(('acc', 'gyro', 'mag', 'ml'))]
+        # Don't set MultiIndex here - keep the simple integer index
+        self.feature_df = self.all_df[self.feature_names]
+
+        # ---- LABELS CREATION ----
+        no_cog_load = ['rest', 'listen_music', 'passive_viewing']
+        low_cog_load = [
+            '2_back', 'stroop_easy', 'memory_easy', 'images_questions_easy', 
+            'difference_images_easy', 'pursuit_easy'
+        ]
+        high_cog_load = [
+            'stroop_difficult', '3_back', 'memory_difficult', 'images_questions_difficult', 
+            'difference_images_difficult', 'pursuit_difficult'
+        ]
+
+        def map_threeclass(phase):
+            if phase in no_cog_load:
+                return 0
+            elif phase in low_cog_load:
+                return 1
+            elif phase in high_cog_load:
+                return 2
+            else:
+                return np.nan
+
+        self.all_df['target_binary'] = self.all_df['experimental_phase'].apply(
+            lambda x: 0 if x in no_cog_load else 1
+        )
+        self.all_df['target_threeclass'] = self.all_df['experimental_phase'].apply(map_threeclass)
+        self.all_df['target_logo_threeclass'] = self.all_df['target_threeclass']
+
+        # Store the labels (keep the same index structure)
+        self.labels_df = self.all_df[
+            ['subject', 'window_index', 'target_binary', 'target_threeclass', 'target_logo_threeclass']
+        ].groupby(self.all_df.index).first()  # Get one label per ID
+        
+        self.class_names = sorted(self.labels_df['target_binary'].dropna().unique().tolist())
+        print(f"Max sequence length: {self.max_seq_len}")
+
+        # Apply limit_size if specified
+        if limit_size is not None:
+            self.apply_limit(limit_size)
+
+    def apply_limit(self, limit_size):
+        """Limit size of dataset by number of samples (IDs)"""
+        if limit_size <= 1:
+            limit_size = int(limit_size * len(self.all_IDs))
+        else:
+            limit_size = int(limit_size)
+        
+        limited_IDs = self.all_IDs[:limit_size]
+        self.all_df = self.all_df.loc[limited_IDs]
+        self.feature_df = self.feature_df.loc[limited_IDs]
+        self.labels_df = self.labels_df.loc[limited_IDs]  # Also limit labels_df
+        self.all_IDs = limited_IDs
+
+    def load_all(self):
+        """Loads all segmented OCO files into a single DataFrame"""
+        segmented_files = [
+            os.path.join(self.oco_dir, folder, f"{folder}_oco_segmented.csv")
+            for folder in os.listdir(self.oco_dir)
+            if os.path.exists(os.path.join(self.oco_dir, folder, f"{folder}_oco_segmented.csv"))
+        ]
+
+        frames = []
+        for file_path in tqdm(segmented_files, desc="Processing subjects"):
+            df_segmented = pd.read_csv(file_path)
+            if df_segmented.empty:
+                folder = os.path.basename(os.path.dirname(file_path))
+                console.log(f"Skipping {folder} because the segmented file is empty")
+                continue
+
+            folder = os.path.basename(os.path.dirname(file_path))
+            df_segmented["subject"] = folder
+
+            ml_columns = [col for col in df_segmented.columns if col.startswith("ml")]
+            sensor_columns = [col for col in df_segmented.columns if col.startswith(("acc", "gyro", "mag"))]
+
+            df_segmented = df_segmented[
+                ["subject", "window_index", "experimental_phase", "timestamp", "software_timestamp"]
+                + sensor_columns + ml_columns
+            ]
+            frames.append(df_segmented)
+
+        all_df = pd.concat(frames, ignore_index=True).dropna(axis=1, how='any')
+        return all_df
+
+    def filter_valid_windows(self, df):
+        """Keeps only windows with a single experimental_phase and drops questionnaire phase."""
+        phase_counts = df.groupby(['subject', 'window_index'])['experimental_phase'].nunique().reset_index()
+        valid_windows = phase_counts[phase_counts['experimental_phase'] == 1][['subject', 'window_index']]
+        df = df.merge(valid_windows, on=['subject', 'window_index'], how='inner')
+        df = df[df['experimental_phase'] != 'questionnaire']
+        return df
 
 data_factory = {'weld': WeldData,
                 'tsra': TSRegressionArchive,
-                'pmu': PMUData}
+                'pmu': PMUData,
+                'cogload': CogloadData}

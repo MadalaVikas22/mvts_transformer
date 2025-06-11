@@ -120,36 +120,111 @@ def collate_superv(data, max_len=None):
     return X, targets, padding_masks, IDs
 
 
+# class ClassiregressionDataset(Dataset):
+
+#     def __init__(self, data, indices):
+#         super(ClassiregressionDataset, self).__init__()
+
+#         self.data = data  # this is a subclass of the BaseData class in data.py
+#         # self.IDs = indices  # list of data IDs, but also mapping between integer index and ID
+#         # self.feature_df = self.data.feature_df.loc[self.IDs]
+#         self.IDs = np.ravel(indices).tolist()  # Ensures 1D
+#         self.feature_df = self.data.feature_df.loc[self.IDs]
+#         print(f"self.IDs shape: {np.shape(self.IDs)}, type: {type(self.IDs)}")
+
+
+#         self.labels_df = self.data.labels_df.loc[self.IDs]
+
+#     def __getitem__(self, ind):
+#         """
+#         For a given integer index, returns the corresponding (seq_length, feat_dim) array and a noise mask of same shape
+#         Args:
+#             ind: integer index of sample in dataset
+#         Returns:
+#             X: (seq_length, feat_dim) tensor of the multivariate time series corresponding to a sample
+#             y: (num_labels,) tensor of labels (num_labels > 1 for multi-task models) for each sample
+#             ID: ID of sample
+#         """
+
+#         X, y = self.get_data(ind)  # however you get X and y
+
+#         # Fix for object dtype
+#         if isinstance(X, np.ndarray) and X.dtype == np.object_:
+#             X = X.astype(np.float32)
+#         if isinstance(y, np.ndarray) and y.dtype == np.object_:
+#             y = y.astype(np.int64)
+#         elif not isinstance(y, np.ndarray):
+#             y = np.array(y, dtype=np.int64)
+
+#         return torch.from_numpy(X), torch.from_numpy(y), self.IDs[ind]
+
+#     def __len__(self):
+#         return len(self.IDs)
+
+
 class ClassiregressionDataset(Dataset):
-
-    def __init__(self, data, indices):
+    def __init__(self, data, indices, label_column='target_binary'):
         super(ClassiregressionDataset, self).__init__()
-
-        self.data = data  # this is a subclass of the BaseData class in data.py
-        self.IDs = indices  # list of data IDs, but also mapping between integer index and ID
+        self.data = data
+        self.IDs = np.ravel(indices).tolist()
         self.feature_df = self.data.feature_df.loc[self.IDs]
-
         self.labels_df = self.data.labels_df.loc[self.IDs]
+        self.label_column = label_column  # Can be 'target_binary', 'target_threeclass', or 'target_logo_threeclass'
+        print(f"self.IDs shape: {np.shape(self.IDs)}, type: {type(self.IDs)}")
+        print(f"Using label column: {self.label_column}")
+
+    def get_data(self, ind):
+        """
+        Returns (X, y) for the given integer index.
+        """
+        ID = self.IDs[ind]
+        X = self.feature_df.loc[ID].values  # (seq_length, feat_dim)
+        
+        # Get the label from the specified column
+        y = self.labels_df.loc[ID, self.label_column]
+        
+        # Debug: print label values for first few samples
+        if ind < 5:
+            print(f"Sample {ind}: {self.label_column} = {y}, type = {type(y)}")
+        
+        return X, y
 
     def __getitem__(self, ind):
-        """
-        For a given integer index, returns the corresponding (seq_length, feat_dim) array and a noise mask of same shape
-        Args:
-            ind: integer index of sample in dataset
-        Returns:
-            X: (seq_length, feat_dim) tensor of the multivariate time series corresponding to a sample
-            y: (num_labels,) tensor of labels (num_labels > 1 for multi-task models) for each sample
-            ID: ID of sample
-        """
+        X, y = self.get_data(ind)
 
-        X = self.feature_df.loc[self.IDs[ind]].values  # (seq_length, feat_dim) array
-        y = self.labels_df.loc[self.IDs[ind]].values  # (num_labels,) array
+        # Fix for object dtype
+        if isinstance(X, np.ndarray) and X.dtype == np.object_:
+            X = X.astype(np.float32)
+        
+        # Convert label to proper format
+        if not isinstance(y, np.ndarray):
+            y = np.array(y, dtype=np.int64)
+        elif y.dtype == np.object_:
+            # If still object type, try to convert
+            y = y.astype(np.int64)
 
         return torch.from_numpy(X), torch.from_numpy(y), self.IDs[ind]
 
     def __len__(self):
         return len(self.IDs)
-
+    
+    def get_num_classes(self):
+        """
+        Returns the number of unique classes for the current label column
+        """
+        unique_labels = self.labels_df[self.label_column].unique()
+        print(f"Unique labels in {self.label_column}: {unique_labels}")
+        return len(unique_labels)
+    
+    def get_class_distribution(self):
+        """
+        Returns the distribution of classes
+        """
+        print(f"Class distribution for {self.label_column}:")
+        print(self.labels_df[self.label_column].value_counts().sort_index())
+        
+        return self.labels_df[self.label_column].value_counts().sort_index()
+    
 
 def transduct_mask(X, mask_feats, start_hint=0.0, end_hint=0.0):
     """
@@ -304,8 +379,10 @@ def padding_mask(lengths, max_len=None):
     where 1 means keep element at this position (time step)
     """
     batch_size = lengths.numel()
+    
     max_len = max_len or lengths.max_val()  # trick works because of overloading of 'or' operator for non-boolean types
     return (torch.arange(0, max_len, device=lengths.device)
             .type_as(lengths)
             .repeat(batch_size, 1)
             .lt(lengths.unsqueeze(1)))
+

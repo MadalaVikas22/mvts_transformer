@@ -61,9 +61,9 @@ class Options(object):
                                       "which type of labels should be used in regression or classification, i.e. name of column(s).")
         self.parser.add_argument('--test_from',
                                  help='If given, will read test IDs from specified text file containing sample IDs one in each row')
-        self.parser.add_argument('--test_ratio', type=float, default=0,
+        self.parser.add_argument('--test_ratio', type=float, default=0.15,
                                  help="Set aside this proportion of the dataset as a test set")
-        self.parser.add_argument('--val_ratio', type=float, default=0.2,
+        self.parser.add_argument('--val_ratio', type=float, default=0.15,
                                  help="Proportion of the dataset to be used as a validation set")
         self.parser.add_argument('--pattern', type=str,
                                  help='Regex pattern used to select files contained in `data_dir`. If None, all data will be used.')
@@ -162,6 +162,19 @@ class Options(object):
                                  help='Activation to be used in transformer encoder')
         self.parser.add_argument('--normalization_layer', choices={'BatchNorm', 'LayerNorm'}, default='BatchNorm',
                                  help='Normalization layer to be used internally in transformer encoder')
+        self.parser.add_argument('--label_column', type=str, default='target_binary',
+                                 choices=['target_binary', 'target_threeclass', 'target_logo_threeclass'],
+                                 help='Which label column to use for classification')
+        self.parser.add_argument('--patience', type=int, default=15,
+                                help='Early stopping patience')
+        self.parser.add_argument('--min_delta', type=float, default=0.001,
+                                help='Minimum improvement for early stopping')
+        self.parser.add_argument('--monitor', type=str, default='accuracy',
+                                help='Metric to monitor for early stopping')
+        self.parser.add_argument('--save_best_only', action='store_true',
+                                help='Only save the best model')
+        
+        
 
     def parse(self):
 

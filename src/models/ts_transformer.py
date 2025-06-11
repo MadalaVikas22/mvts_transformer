@@ -7,7 +7,7 @@ from torch.nn import functional as F
 from torch.nn.modules import MultiheadAttention, Linear, Dropout, BatchNorm1d, TransformerEncoderLayer
 
 
-def model_factory(config, data):
+def model_factory(config, data, num_classes=None):
     task = config['task']
     feat_dim = data.feature_df.shape[1]  # dimensionality of data features
     # data windowing is used when samples don't have a predefined length or the length is too long
@@ -32,7 +32,14 @@ def model_factory(config, data):
                                         norm=config['normalization_layer'], freeze=config['freeze'])
 
     if (task == "classification") or (task == "regression"):
-        num_labels = len(data.class_names) if task == "classification" else data.labels_df.shape[1]  # dimensionality of labels
+        # Use provided num_classes if available, otherwise fall back to original logic
+        if num_classes is not None:
+            num_labels = num_classes
+            print(f"Using {num_labels} classes from dataset")
+        else:
+            num_labels = len(data.class_names) if task == "classification" else data.labels_df.shape[1]
+            print("Class names:", data.class_names)
+        
         if config['model'] == 'LINEAR':
             return DummyTSTransformerEncoderClassiregressor(feat_dim, max_seq_len, config['d_model'],
                                                             config['num_heads'],
@@ -299,6 +306,7 @@ class TSTransformerEncoderClassiregressor(nn.Module):
         inp = self.project_inp(inp) * math.sqrt(
             self.d_model)  # [seq_length, batch_size, d_model] project input vectors to d_model dimensional space
         inp = self.pos_enc(inp)  # add positional encoding
+        
         # NOTE: logic for padding masks is reversed to comply with definition in MultiHeadAttention, TransformerEncoderLayer
         output = self.transformer_encoder(inp, src_key_padding_mask=~padding_masks)  # (seq_length, batch_size, d_model)
         output = self.act(output)  # the output transformer encoder/decoder embeddings don't include non-linearity
